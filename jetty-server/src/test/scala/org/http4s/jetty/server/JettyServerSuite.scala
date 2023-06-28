@@ -18,7 +18,9 @@ package org.http4s
 package jetty
 package server
 
-import cats.effect.{IO, Resource, Temporal}
+import cats.effect.IO
+import cats.effect.Resource
+import cats.effect.Temporal
 import munit.CatsEffectSuite
 import org.eclipse.jetty.client.HttpClient
 import org.eclipse.jetty.client.api.Request
@@ -27,6 +29,7 @@ import org.http4s.dsl.io._
 import org.http4s.server.Server
 
 import scala.concurrent.duration._
+import munit.catseffect.IOFixture
 
 class JettyServerSuite extends CatsEffectSuite {
 
@@ -38,7 +41,7 @@ class JettyServerSuite extends CatsEffectSuite {
       Resource.make(IO(new HttpClient()))(c => IO(c.stop())).evalTap(c => IO(c.start())),
     )
 
-  override def munitFixtures = List(client)
+  override def munitFixtures: List[IOFixture[HttpClient]] = List(client)
 
   private val serverR =
     builder
