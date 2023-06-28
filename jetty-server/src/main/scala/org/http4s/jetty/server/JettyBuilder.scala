@@ -41,7 +41,7 @@ import org.http4s.server.Server
 import org.http4s.server.ServerBuilder
 import org.http4s.server.ServiceErrorHandler
 import org.http4s.server.defaults
-import org.http4s.servlet.AsyncHttp4sServlet
+import org.http4s.servlet.AsyncHttp4sServlet2
 import org.http4s.servlet.ServletContainer
 import org.http4s.servlet.ServletIo
 import org.http4s.syntax.all._
@@ -207,7 +207,7 @@ sealed class JettyBuilder[F[_]] private (
   @nowarn("cat=deprecation")
   def mountHttpApp(service: HttpApp[F], prefix: String): Self =
     copy(mounts = mounts :+ Mount[F] { (context, index, builder, dispatcher) =>
-      val servlet = new AsyncHttp4sServlet(
+      val servlet = new AsyncHttp4sServlet2(
         httpApp = service,
         asyncTimeout = builder.asyncTimeout,
         servletIo = builder.servletIo,
