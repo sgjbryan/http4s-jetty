@@ -95,7 +95,18 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
       val response =
         gate.get >> serviceFn(request).recoverWith(serviceErrorHandler(request))
       val servletResponse = ctx.getResponse.asInstanceOf[HttpServletResponse]
-      F.race(timeout, response).flatMap(r => renderResponse(r.merge, servletResponse, bodyWriter))
+      F.racePair(timeout, response)
+        .flatMap {
+          case Left((Outcome.Succeeded(response), _)) =>
+            response.flatMap(renderResponse(_, servletResponse, bodyWriter))
+          case Right((_, Outcome.Succeeded(response))) =>
+            response.flatMap(renderResponse(_, servletResponse, bodyWriter))
+          case _ =>
+            F.delay(logger.error("failure or cancellation")) *> F.raiseError(
+              new Exception("failure or cancellation")
+            )
+        }
+
     }
 
   private def errorHandler(

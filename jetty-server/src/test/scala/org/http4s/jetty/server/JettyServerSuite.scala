@@ -22,6 +22,7 @@ import cats.effect.IO
 import cats.effect.Resource
 import cats.effect.Temporal
 import munit.CatsEffectSuite
+import munit.catseffect.IOFixture
 import org.eclipse.jetty.client.HttpClient
 import org.eclipse.jetty.client.api.Request
 import org.eclipse.jetty.client.util.StringContentProvider
@@ -29,7 +30,6 @@ import org.http4s.dsl.io._
 import org.http4s.server.Server
 
 import scala.concurrent.duration._
-import munit.catseffect.IOFixture
 
 class JettyServerSuite extends CatsEffectSuite {
 
