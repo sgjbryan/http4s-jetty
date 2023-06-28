@@ -18,7 +18,6 @@ package org.http4s
 package servlet
 
 import cats.effect.kernel.Async
-import cats.effect.kernel.Deferred
 import cats.effect.kernel.Outcome
 import cats.effect.std.Dispatcher
 import cats.effect.syntax.all._
@@ -39,8 +38,6 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
     dispatcher: Dispatcher[F],
 )(implicit F: Async[F])
     extends Http4sServlet2[F](httpApp, servletIo, dispatcher) {
-  private val asyncTimeoutMillis =
-    if (asyncTimeout.isFinite) asyncTimeout.toMillis else -1 // -1 == Inf
 
   override def init(config: ServletConfig): Unit = {
     super.init(config)
@@ -61,7 +58,6 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
   ): Unit =
     try {
       val ctx = servletRequest.startAsync()
-      ctx.setTimeout(asyncTimeoutMillis)
       // Must be done on the container thread for Tomcat's sake when using async I/O.
       val bodyWriter = servletIo.initWriter(servletResponse)
       val result = toRequest(servletRequest)
@@ -76,38 +72,19 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
       dispatcher.unsafeRunAndForget(result)
     } catch errorHandler(servletRequest, servletResponse).andThen(dispatcher.unsafeRunSync _)
 
-  private[this] val noopCancelToken = Some(F.unit)
-
   private def handleRequest(
       ctx: AsyncContext,
       request: Request[F],
       bodyWriter: BodyWriter[F],
-  ): F[Unit] =
-    Deferred[F, Unit].flatMap { gate =>
-      // It is an error to add a listener to an async context that is
-      // already completed, so we must take care to add the listener
-      // before the response can complete.
-
-      val timeout =
-        F.async[Response[F]](cb =>
-          gate.complete(ctx.addListener(new AsyncTimeoutHandler(cb))).as(noopCancelToken)
-        )
-      val response =
-        gate.get >> serviceFn(request).recoverWith(serviceErrorHandler(request))
-      val servletResponse = ctx.getResponse.asInstanceOf[HttpServletResponse]
-      F.racePair(timeout, response)
-        .flatMap {
-          case Left((Outcome.Succeeded(response), _)) =>
-            response.flatMap(renderResponse(_, servletResponse, bodyWriter))
-          case Right((_, Outcome.Succeeded(response))) =>
-            response.flatMap(renderResponse(_, servletResponse, bodyWriter))
-          case _ =>
-            F.delay(logger.error("failure or cancellation")) *> F.raiseError(
-              new Exception("failure or cancellation")
-            )
-        }
-
-    }
+  ): F[Unit] = {
+    val servletResponse = ctx.getResponse.asInstanceOf[HttpServletResponse]
+    serviceFn(request)
+      .recoverWith(serviceErrorHandler(request))
+      .timeoutTo(asyncTimeout, Response.timeout[F].pure[F])
+      .flatMap(
+        renderResponse(_, servletResponse, bodyWriter)
+      )
+  }
 
   private def errorHandler(
       servletRequest: ServletRequest,
@@ -127,14 +104,6 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
         )
       F.delay(logger.error(t)("Error processing request")) *>
         f.handleError(logger.error(_)("Error in error handler"))
-  }
-
-  private class AsyncTimeoutHandler(cb: Callback[Response[F]]) extends AbstractAsyncListener {
-    override def onTimeout(event: AsyncEvent): Unit = {
-      val req = event.getAsyncContext.getRequest.asInstanceOf[HttpServletRequest]
-      logger.info(s"Request timed out: ${req.getMethod} ${req.getServletPath}${req.getPathInfo}")
-      cb(Right(Response.timeout[F]))
-    }
   }
 }
 
