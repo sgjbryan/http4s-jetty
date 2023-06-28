@@ -19,7 +19,9 @@ package servlet
 
 import cats.effect.kernel.Async
 import cats.effect.kernel.Deferred
+import cats.effect.kernel.Outcome
 import cats.effect.std.Dispatcher
+import cats.effect.syntax.all._
 import cats.syntax.all._
 import org.http4s.server._
 
@@ -67,10 +69,9 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
           onParseFailure(_, servletResponse, bodyWriter),
           handleRequest(ctx, _, bodyWriter),
         )
-        .attempt
-        .flatMap {
-          case Right(()) => F.delay(ctx.complete)
-          case Left(t) => errorHandler(servletRequest, servletResponse)(t)
+        .guaranteeCase {
+          case Outcome.Succeeded(_) | Outcome.Canceled() => F.delay(ctx.complete)
+          case Outcome.Errored(t) => errorHandler(servletRequest, servletResponse)(t)
         }
       dispatcher.unsafeRunAndForget(result)
     } catch errorHandler(servletRequest, servletResponse).andThen(dispatcher.unsafeRunSync _)
@@ -113,12 +114,8 @@ class AsyncHttp4sServlet2[F[_]] @deprecated("Use AsyncHttp4sServlet.builder", "0
           if (servletRequest.isAsyncStarted)
             servletRequest.getAsyncContext.complete()
         )
-      F.delay(logger.error(t)("Error processing request")) *> F
-        .attempt(f)
-        .flatMap {
-          case Right(()) => F.unit
-          case Left(e) => F.delay(logger.error(e)("Error in error handler"))
-        }
+      F.delay(logger.error(t)("Error processing request")) *>
+        f.handleError(logger.error(_)("Error in error handler"))
   }
 
   private class AsyncTimeoutHandler(cb: Callback[Response[F]]) extends AbstractAsyncListener {
